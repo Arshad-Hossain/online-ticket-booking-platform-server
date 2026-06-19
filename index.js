@@ -197,6 +197,23 @@ async function run() {
       }
     });
 
+    // admin getting all tickets
+    app.get("/api/admin/tickets", async (req, res) => {
+      try {
+        const tickets = await ticketsCollection
+          .find({})
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.send(tickets);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to fetch tickets" });
+      }
+    });
+
+    // admin patching ticket
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
