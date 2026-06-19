@@ -234,6 +234,18 @@ async function run() {
       }
     });
 
+    // admin getting all users
+    app.get("/api/admin/users", async (req, res) => {
+      try {
+        const users = await usersCollection.find({}).toArray();
+
+        res.send(users);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to fetch users" });
+      }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
