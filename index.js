@@ -31,7 +31,37 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     await client.connect();
-    const db = client.db("tech-bazaar");
+    const db = client.db("ticketbari");
+    const ticketsCollection = db.collection("tickets");
+
+    //adding ticket
+
+    app.post("/api/tickets", async (req, res) => {
+      try {
+        const ticket = req.body;
+
+        const newTicket = {
+          ...ticket,
+          verificationStatus: "pending",
+          createdAt: new Date(),
+        };
+
+        const result = await ticketsCollection.insertOne(newTicket);
+
+        res.status(201).send({
+          success: true,
+          message: "Ticket added successfully",
+          insertedId: result.insertedId,
+        });
+      } catch (error) {
+        console.error(error);
+
+        res.status(500).send({
+          success: false,
+          message: "Failed to add ticket",
+        });
+      }
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
