@@ -213,6 +213,26 @@ async function run() {
     });
 
     // admin patching ticket
+    app.patch("/api/admin/tickets/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { status } = req.body; // "approved" or "rejected"
+
+        const result = await ticketsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              verificationStatus: status,
+            },
+          },
+        );
+
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to update ticket status" });
+      }
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
