@@ -33,6 +33,7 @@ async function run() {
     await client.connect();
     const db = client.db("ticketbari");
     const ticketsCollection = db.collection("tickets");
+    const bookingsCollection = db.collection("bookings");
 
     //adding ticket
 
@@ -60,6 +61,93 @@ async function run() {
           success: false,
           message: "Failed to add ticket",
         });
+      }
+    });
+
+    //getting vendors added tickets
+    app.get("/api/tickets/vendor/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        const tickets = await ticketsCollection
+          .find({ vendorEmail: email })
+          .toArray();
+
+        res.send(tickets);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to load tickets" });
+      }
+    });
+
+    // delete ticket
+    app.delete("/api/tickets/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        const result = await ticketsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Delete failed" });
+      }
+    });
+
+    //update ticket
+    app.put("/api/tickets/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updatedData = req.body;
+
+        const result = await ticketsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: updatedData,
+          },
+        );
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Update failed" });
+      }
+    });
+
+    //getting vendor booking requests
+    app.get("/api/bookings/vendor/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        const bookings = await bookingsCollection
+          .find({ vendorEmail: email })
+          .toArray();
+
+        res.send(bookings);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to get bookings" });
+      }
+    });
+
+    // updating like accepting or rejecting booking
+    app.patch("/api/bookings/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { status } = req.body;
+
+        const result = await bookingsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              status,
+            },
+          },
+        );
+
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to update booking" });
       }
     });
 
