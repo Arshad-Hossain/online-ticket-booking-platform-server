@@ -246,6 +246,76 @@ async function run() {
       }
     });
 
+    // admin updating user roles
+    app.patch("/api/admin/users/:id/role", async (req, res) => {
+      try {
+        const { role } = req.body;
+        const id = req.params.id;
+
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              signupAs: role,
+            },
+          },
+        );
+
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to update role" });
+      }
+    });
+
+    // adming marking user/vendor as fraud
+    app.patch("/api/admin/users/:id/fraud", async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        const vendor = await usersCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!vendor) {
+          return res.status(404).send({
+            message: "Vendor not found",
+          });
+        }
+
+        await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              isFraud: true,
+            },
+          },
+        );
+
+        await ticketsCollection.updateMany(
+          {
+            vendorEmail: vendor.email,
+          },
+          {
+            $set: {
+              isHidden: true,
+            },
+          },
+        );
+
+        res.send({
+          success: true,
+          message: "Vendor marked as fraud",
+        });
+      } catch (error) {
+        console.error(error);
+
+        res.status(500).send({
+          message: "Failed to mark vendor as fraud",
+        });
+      }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
