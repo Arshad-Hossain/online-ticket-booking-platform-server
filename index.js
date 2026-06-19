@@ -151,6 +151,52 @@ async function run() {
       }
     });
 
+    //vendor revenue api
+    app.get("/api/revenue/vendor/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        // 1. tickets added
+        const tickets = await ticketsCollection
+          .find({ vendorEmail: email })
+          .toArray();
+
+        // 2. bookings (sold tickets)
+        const bookings = await bookingsCollection
+          .find({
+            vendorEmail: email,
+            status: "accepted",
+          })
+          .toArray();
+
+        const totalTicketsAdded = tickets.length;
+
+        const totalTicketsSold = bookings.reduce(
+          (acc, b) => acc + (b.quantity || 0),
+          0,
+        );
+
+        const totalRevenue = bookings.reduce(
+          (acc, b) => acc + (b.quantity * b.unitPrice || 0),
+          0,
+        );
+
+        res.send({
+          totalTicketsAdded,
+          totalTicketsSold,
+          totalRevenue,
+          chart: [
+            { name: "Added", value: totalTicketsAdded },
+            { name: "Sold", value: totalTicketsSold },
+            { name: "Revenue", value: totalRevenue },
+          ],
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to load revenue" });
+      }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
