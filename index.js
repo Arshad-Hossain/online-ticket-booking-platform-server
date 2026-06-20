@@ -34,16 +34,65 @@ async function run() {
     const db = client.db("ticketbari");
     const ticketsCollection = db.collection("tickets");
     const bookingsCollection = db.collection("bookings");
+    const usersCollection = db.collection("users");
 
     //adding ticket
+
+    // app.post("/api/tickets", async (req, res) => {
+    //   try {
+    //     const ticket = req.body;
+
+    //     const newTicket = {
+    //       ...ticket,
+    //       verificationStatus: "pending",
+    //       createdAt: new Date(),
+    //     };
+
+    //     const result = await ticketsCollection.insertOne(newTicket);
+
+    //     res.status(201).send({
+    //       success: true,
+    //       message: "Ticket added successfully",
+    //       insertedId: result.insertedId,
+    //     });
+    //   } catch (error) {
+    //     console.error(error);
+
+    //     res.status(500).send({
+    //       success: false,
+    //       message: "Failed to add ticket",
+    //     });
+    //   }
+    // });
 
     app.post("/api/tickets", async (req, res) => {
       try {
         const ticket = req.body;
 
+        // Check if vendor exists
+        const vendor = await usersCollection.findOne({
+          email: ticket.vendorEmail,
+        });
+
+        if (!vendor) {
+          return res.status(404).send({
+            success: false,
+            message: "Vendor not found",
+          });
+        }
+
+        // Fraud vendors cannot add tickets
+        if (vendor.isFraud) {
+          return res.status(403).send({
+            success: false,
+            message: "Fraud vendors cannot add tickets",
+          });
+        }
+
         const newTicket = {
           ...ticket,
           verificationStatus: "pending",
+          isHidden: false,
           createdAt: new Date(),
         };
 
@@ -60,6 +109,26 @@ async function run() {
         res.status(500).send({
           success: false,
           message: "Failed to add ticket",
+        });
+      }
+    });
+
+    //getting tickets
+    app.get("/api/tickets", async (req, res) => {
+      try {
+        const tickets = await ticketsCollection
+          .find({
+            verificationStatus: "approved",
+            isHidden: { $ne: true },
+          })
+          .toArray();
+
+        res.send(tickets);
+      } catch (error) {
+        console.error(error);
+
+        res.status(500).send({
+          message: "Failed to fetch tickets",
         });
       }
     });
@@ -84,13 +153,30 @@ async function run() {
       try {
         const id = req.params.id;
 
+        const ticket = await ticketsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        const vendor = await usersCollection.findOne({
+          email: ticket.vendorEmail,
+        });
+
+        if (vendor?.isFraud) {
+          return res.status(403).send({
+            success: false,
+            message: "Fraud vendors cannot delete tickets",
+          });
+        }
+
         const result = await ticketsCollection.deleteOne({
           _id: new ObjectId(id),
         });
 
         res.send(result);
       } catch (error) {
-        res.status(500).send({ message: "Delete failed" });
+        res.status(500).send({
+          message: "Delete failed",
+        });
       }
     });
 
@@ -99,6 +185,21 @@ async function run() {
       try {
         const id = req.params.id;
         const updatedData = req.body;
+
+        const ticket = await ticketsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        const vendor = await usersCollection.findOne({
+          email: ticket.vendorEmail,
+        });
+
+        if (vendor?.isFraud) {
+          return res.status(403).send({
+            success: false,
+            message: "Fraud vendors cannot update tickets",
+          });
+        }
 
         const result = await ticketsCollection.updateOne(
           { _id: new ObjectId(id) },
@@ -109,7 +210,9 @@ async function run() {
 
         res.send(result);
       } catch (error) {
-        res.status(500).send({ message: "Update failed" });
+        res.status(500).send({
+          message: "Update failed",
+        });
       }
     });
 
@@ -312,6 +415,98 @@ async function run() {
 
         res.status(500).send({
           message: "Failed to mark vendor as fraud",
+        });
+      }
+    });
+
+    // get all approved tickets by admin
+    app.get("/api/admin/advertisements", async (req, res) => {
+      try {
+        const tickets = await ticketsCollection
+          .find({
+            verificationStatus: "approved",
+          })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.send(tickets);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({
+          message: "Failed to fetch tickets",
+        });
+      }
+    });
+
+    // enforcing 6 advertised tickets
+    app.patch("/api/admin/advertisements/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        const ticket = await ticketsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!ticket) {
+          return res.status(404).send({
+            message: "Ticket not found",
+          });
+        }
+
+        // If trying to advertise
+        if (!ticket.isAdvertised) {
+          const advertisedCount = await ticketsCollection.countDocuments({
+            isAdvertised: true,
+          });
+
+          if (advertisedCount >= 6) {
+            return res.status(400).send({
+              success: false,
+              message: "Maximum 6 tickets can be advertised",
+            });
+          }
+        }
+
+        const result = await ticketsCollection.updateOne(
+          {
+            _id: new ObjectId(id),
+          },
+          {
+            $set: {
+              isAdvertised: !ticket.isAdvertised,
+            },
+          },
+        );
+
+        res.send({
+          success: true,
+          result,
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({
+          message: "Failed to update advertisement",
+        });
+      }
+    });
+
+    // display advertised tickets on homepage
+    app.get("/api/advertisements", async (req, res) => {
+      try {
+        const tickets = await ticketsCollection
+          .find({
+            isAdvertised: true,
+            verificationStatus: "approved",
+            isHidden: { $ne: true },
+          })
+          .limit(6)
+          .toArray();
+
+        res.send(tickets);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({
+          message: "Failed to load advertisements",
         });
       }
     });
