@@ -511,6 +511,31 @@ async function run() {
       }
     });
 
+    // ticket details page
+    app.get("/api/tickets/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+
+        const ticket = await ticketsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!ticket) {
+          return res.status(404).send({
+            message: "Ticket not found",
+          });
+        }
+
+        res.send(ticket);
+      } catch (error) {
+        console.error(error);
+
+        res.status(500).send({
+          message: "Failed to fetch ticket",
+        });
+      }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
