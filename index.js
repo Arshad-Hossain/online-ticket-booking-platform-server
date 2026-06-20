@@ -536,6 +536,28 @@ async function run() {
       }
     });
 
+    // api for latest tickets
+    app.get("/api/latest-tickets", async (req, res) => {
+      try {
+        const tickets = await ticketsCollection
+          .find({
+            verificationStatus: "approved",
+            isHidden: { $ne: true },
+          })
+          .sort({ createdAt: -1 })
+          .limit(8)
+          .toArray();
+
+        res.send(tickets);
+      } catch (error) {
+        console.error(error);
+
+        res.status(500).send({
+          message: "Failed to load latest tickets",
+        });
+      }
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
