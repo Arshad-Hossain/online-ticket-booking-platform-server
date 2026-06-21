@@ -34,7 +34,7 @@ async function run() {
     const db = client.db("ticketbari");
     const ticketsCollection = db.collection("tickets");
     const bookingsCollection = db.collection("bookings");
-    const usersCollection = db.collection("users");
+    const usersCollection = db.collection("user");
 
     //adding ticket
 
@@ -69,7 +69,14 @@ async function run() {
       try {
         const ticket = req.body;
 
-        // Check if vendor exists
+        if (!ticket?.vendorEmail) {
+          return res.status(400).send({
+            success: false,
+            message: "Vendor email is required",
+          });
+        }
+
+        // Check vendor
         const vendor = await usersCollection.findOne({
           email: ticket.vendorEmail,
         });
@@ -81,7 +88,6 @@ async function run() {
           });
         }
 
-        // Fraud vendors cannot add tickets
         if (vendor.isFraud) {
           return res.status(403).send({
             success: false,
@@ -93,20 +99,20 @@ async function run() {
           ...ticket,
           verificationStatus: "pending",
           isHidden: false,
+          isAdvertised: false,
           createdAt: new Date(),
         };
 
         const result = await ticketsCollection.insertOne(newTicket);
 
-        res.status(201).send({
+        return res.status(201).send({
           success: true,
           message: "Ticket added successfully",
           insertedId: result.insertedId,
         });
       } catch (error) {
         console.error(error);
-
-        res.status(500).send({
+        return res.status(500).send({
           success: false,
           message: "Failed to add ticket",
         });
@@ -449,12 +455,15 @@ async function run() {
 
         if (!ticket) {
           return res.status(404).send({
+            success: false,
             message: "Ticket not found",
           });
         }
 
-        // If trying to advertise
-        if (!ticket.isAdvertised) {
+        const isCurrentlyAdvertised = ticket.isAdvertised === true;
+
+        // If trying to TURN ON advertise
+        if (!isCurrentlyAdvertised) {
           const advertisedCount = await ticketsCollection.countDocuments({
             isAdvertised: true,
           });
@@ -468,23 +477,23 @@ async function run() {
         }
 
         const result = await ticketsCollection.updateOne(
-          {
-            _id: new ObjectId(id),
-          },
+          { _id: new ObjectId(id) },
           {
             $set: {
-              isAdvertised: !ticket.isAdvertised,
+              isAdvertised: !isCurrentlyAdvertised,
             },
           },
         );
 
         res.send({
           success: true,
+          message: "Advertisement updated",
           result,
         });
       } catch (error) {
         console.error(error);
         res.status(500).send({
+          success: false,
           message: "Failed to update advertisement",
         });
       }
@@ -499,7 +508,7 @@ async function run() {
             verificationStatus: "approved",
             isHidden: { $ne: true },
           })
-          .limit(6)
+          .sort({ createdAt: -1 })
           .toArray();
 
         res.send(tickets);
@@ -545,7 +554,7 @@ async function run() {
             isHidden: { $ne: true },
           })
           .sort({ createdAt: -1 })
-          .limit(8)
+          .limit(6)
           .toArray();
 
         res.send(tickets);
@@ -554,6 +563,52 @@ async function run() {
 
         res.status(500).send({
           message: "Failed to load latest tickets",
+        });
+      }
+    });
+
+    //booking posting api
+
+    app.post("/api/bookings", async (req, res) => {
+      try {
+        const booking = req.body;
+
+        const ticket = await ticketsCollection.findOne({
+          _id: new ObjectId(booking.ticketId),
+        });
+
+        if (!ticket) {
+          return res.status(404).send({
+            success: false,
+            message: "Ticket not found",
+          });
+        }
+
+        if (ticket.quantity < booking.quantity) {
+          return res.status(400).send({
+            success: false,
+            message: "Not enough tickets available",
+          });
+        }
+
+        const newBooking = {
+          ...booking,
+          status: "pending",
+          bookedAt: new Date(),
+        };
+
+        const result = await bookingsCollection.insertOne(newBooking);
+
+        res.send({
+          success: true,
+          insertedId: result.insertedId,
+        });
+      } catch (error) {
+        console.error(error);
+
+        res.status(500).send({
+          success: false,
+          message: "Booking failed",
         });
       }
     });
