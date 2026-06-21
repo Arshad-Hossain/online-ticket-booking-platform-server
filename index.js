@@ -4,10 +4,13 @@
 const express = require("express");
 const dontenv = require("dotenv");
 const cors = require("cors");
+
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+// const { default: Stripe } = require("stripe");
 dontenv.config();
 
 const uri = process.env.MONGODB_URI;
+// const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 const PORT = process.env.PORT;
@@ -612,6 +615,31 @@ async function run() {
         });
       }
     });
+
+    //getting my-booked tickets
+    app.get("/api/bookings/user/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
+
+    const bookings = await bookingsCollection
+      .find({
+        userEmail: email,
+      })
+      .sort({
+        bookedAt: -1,
+      })
+      .toArray();
+
+    res.send(bookings);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to load bookings",
+    });
+  }
+});
 
     await client.db("admin").command({ ping: 1 });
     console.log(
