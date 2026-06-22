@@ -6,11 +6,12 @@ const dontenv = require("dotenv");
 const cors = require("cors");
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-// const { default: Stripe } = require("stripe");
 dontenv.config();
 
 const uri = process.env.MONGODB_URI;
-// const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+
+const Stripe = require("stripe");
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 const PORT = process.env.PORT;
@@ -18,7 +19,7 @@ const PORT = process.env.PORT;
 app.use(
   cors({
     credentials: true,
-    origin: [process.env.CLIENT_URL],
+    origin: [process.env.NEXT_PUBLIC_CLIENT_URL],
   }),
 );
 app.use(express.json());
@@ -38,6 +39,7 @@ async function run() {
     const ticketsCollection = db.collection("tickets");
     const bookingsCollection = db.collection("bookings");
     const usersCollection = db.collection("user");
+    const transactionsCollection = db.collection("transactions");
 
     //adding ticket
 
@@ -618,28 +620,134 @@ async function run() {
 
     //getting my-booked tickets
     app.get("/api/bookings/user/:email", async (req, res) => {
-  try {
-    const email = req.params.email;
+      try {
+        const email = req.params.email;
 
-    const bookings = await bookingsCollection
-      .find({
-        userEmail: email,
-      })
-      .sort({
-        bookedAt: -1,
-      })
-      .toArray();
+        const bookings = await bookingsCollection
+          .find({
+            userEmail: email,
+          })
+          .sort({
+            bookedAt: -1,
+          })
+          .toArray();
 
-    res.send(bookings);
-  } catch (error) {
-    console.error(error);
+        res.send(bookings);
+      } catch (error) {
+        console.error(error);
 
-    res.status(500).send({
-      success: false,
-      message: "Failed to load bookings",
+        res.status(500).send({
+          success: false,
+          message: "Failed to load bookings",
+        });
+      }
     });
-  }
-});
+
+    // api for posting payment
+
+    // getting transaction details
+    app.get("/api/transactions/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        const transactions = await transactionsCollection
+          .find({
+            userEmail: email,
+          })
+          .sort({
+            transactionDate: -1,
+          })
+          .toArray();
+
+        res.send(transactions);
+      } catch (error) {
+        console.error(error);
+
+        res.status(500).send({
+          success: false,
+          message: "Failed to load transactions",
+        });
+      }
+    });
+
+    //stripe checkout session
+    app.post("/api/stripe/checkout", async (req, res) => {
+      try {
+        const { booking } = req.body;
+
+        const session = await stripe.checkout.sessions.create({
+          payment_method_types: ["card"],
+          mode: "payment",
+
+          // ✅ THIS FIXES EMAIL
+          customer_email: booking.userEmail,
+
+          line_items: [
+            {
+              price_data: {
+                currency: "usd",
+                product_data: {
+                  name: booking.title,
+                },
+                unit_amount: booking.unitPrice * 100,
+              },
+              quantity: booking.quantity,
+            },
+          ],
+
+          success_url: `${process.env.NEXT_PUBLIC_CLIENT_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}&bookingId=${booking._id}`,
+          cancel_url: `${process.env.NEXT_PUBLIC_CLIENT_URL}/my-booked-tickets`,
+        });
+
+        res.send({ url: session.url });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({
+          success: false,
+          message: "Stripe checkout failed",
+        });
+      }
+    });
+
+    // payment confirm
+    app.post("/api/payments/confirm", async (req, res) => {
+      try {
+        const { bookingId, sessionId } = req.body;
+
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+        if (session.payment_status !== "paid") {
+          return res.status(400).send({
+            success: false,
+            message: "Payment not completed",
+          });
+        }
+
+        // update booking
+        await bookingsCollection.updateOne(
+          { _id: new ObjectId(bookingId) },
+          { $set: { status: "paid" } },
+        );
+
+        // save transaction
+        await transactionsCollection.insertOne({
+          bookingId,
+          sessionId,
+          amount: session.amount_total / 100,
+          currency: session.currency,
+          userEmail: session.customer_details?.email,
+          transactionDate: new Date(),
+        });
+
+        res.send({ success: true });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({
+          success: false,
+          message: "Payment confirmation failed",
+        });
+      }
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
