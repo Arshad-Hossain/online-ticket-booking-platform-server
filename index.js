@@ -34,7 +34,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const db = client.db("ticketbari");
     const ticketsCollection = db.collection("tickets");
     const bookingsCollection = db.collection("bookings");
@@ -598,6 +598,13 @@ async function run() {
 
         const newBooking = {
           ...booking,
+
+          // ensure required fields always exist
+          title: booking.title,
+          image: booking.image,
+          from: booking.from,
+          to: booking.to,
+
           status: "pending",
           bookedAt: new Date(),
         };
@@ -651,18 +658,13 @@ async function run() {
         const email = req.params.email;
 
         const transactions = await transactionsCollection
-          .find({
-            userEmail: email,
-          })
-          .sort({
-            transactionDate: -1,
-          })
+          .find({ userEmail: email })
+          .sort({ transactionDate: -1 })
           .toArray();
 
         res.send(transactions);
       } catch (error) {
         console.error(error);
-
         res.status(500).send({
           success: false,
           message: "Failed to load transactions",
@@ -675,12 +677,14 @@ async function run() {
       try {
         const { booking } = req.body;
 
+        console.log("CLIENT URL:", process.env.NEXT_PUBLIC_CLIENT_URL);
+        console.log("BOOKING:", booking);
+
         const session = await stripe.checkout.sessions.create({
           payment_method_types: ["card"],
           mode: "payment",
 
-          // ✅ THIS FIXES EMAIL
-          customer_email: booking.userEmail,
+          customer_email: booking.userEmail, // ✅ FIX: auto email
 
           line_items: [
             {
@@ -714,6 +718,14 @@ async function run() {
       try {
         const { bookingId, sessionId } = req.body;
 
+        if (!bookingId || !sessionId) {
+          return res.status(400).send({
+            success: false,
+            message: "Missing bookingId or sessionId",
+          });
+        }
+
+        // 1. Stripe session
         const session = await stripe.checkout.sessions.retrieve(sessionId);
 
         if (session.payment_status !== "paid") {
@@ -723,23 +735,53 @@ async function run() {
           });
         }
 
-        // update booking
+        // 2. Booking
+        const booking = await bookingsCollection.findOne({
+          _id: new ObjectId(bookingId),
+        });
+
+        if (!booking) {
+          return res.status(404).send({
+            success: false,
+            message: "Booking not found",
+          });
+        }
+
+        // 3. Prevent duplicate transaction
+        const existing = await transactionsCollection.findOne({ sessionId });
+        if (existing) {
+          return res.send({ success: true, message: "Already processed" });
+        }
+
+        // 4. Update booking status
         await bookingsCollection.updateOne(
           { _id: new ObjectId(bookingId) },
           { $set: { status: "paid" } },
         );
 
-        // save transaction
+        // 5. ✅ PUT THIS CODE HERE (RIGHT AFTER UPDATE)
         await transactionsCollection.insertOne({
           bookingId,
           sessionId,
+
+          userEmail: booking.userEmail,
+
+          ticketTitle: booking.title,
+          ticketImage: booking.image,
+          from: booking.from,
+          to: booking.to,
+
+          quantity: booking.quantity,
           amount: session.amount_total / 100,
           currency: session.currency,
-          userEmail: session.customer_details?.email,
+
           transactionDate: new Date(),
         });
 
-        res.send({ success: true });
+        return res.send({
+          success: true,
+          message: "Payment confirmed",
+        });
       } catch (error) {
         console.error(error);
         res.status(500).send({
@@ -749,7 +791,7 @@ async function run() {
       }
     });
 
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
     );
