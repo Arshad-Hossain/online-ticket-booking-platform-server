@@ -11,6 +11,8 @@ dontenv.config();
 const uri = process.env.MONGODB_URI;
 
 const Stripe = require("stripe");
+// const { createRemoteJWKSet } = require("jose-cjs");
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
@@ -31,6 +33,36 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.NEXT_PUBLIC_CLIENT_URL}/api/auth/jwks`),
+);
+
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer")) {
+    return res.status(401).json({ msg: "Unauthorized" });
+  }
+
+  // ["Bearer", "xjasasdhsagdydsav"]
+
+  const token = authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ msg: "Unauthorized" });
+  }
+
+  try {
+    const { payload } = await jwtVerify(token, JWKS);
+    req.user = payload;
+
+    next();
+  } catch (error) {
+    console.log(error);
+    return res.status(401).json({ msg: "Unauthorized" });
+  }
+};
 
 async function run() {
   try {
@@ -70,7 +102,7 @@ async function run() {
     //   }
     // });
 
-    app.post("/api/tickets", async (req, res) => {
+    app.post("/api/tickets", verifyToken, async (req, res) => {
       try {
         const ticket = req.body;
 
